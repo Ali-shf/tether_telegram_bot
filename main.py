@@ -1,0 +1,119 @@
+import requests
+import os
+from dotenv import load_dotenv
+from typing import Final
+import sys
+
+
+load_dotenv()
+TOKEN:Final = os.getenv('TELEGRAM_BOT_TOKEN')
+CHANNEL_ID = os.getenv('CHANNEL_ID')
+
+
+english_to_persian_dict = {
+    '0': '۰',
+    '1': '۱',
+    '2': '۲',
+    '3': '۳',
+    '4': '۴',
+    '5': '۵',
+    '6': '۶',
+    '7': '۷',
+    '8': '۸',
+    '9': '۹'
+}
+
+def get_latest_price(url, method_name='get', payload=None):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            try:
+                fun = getattr(requests, method_name)
+                response = fun(url, payload)
+                return func(*args, **kwargs, response=response.json())
+            except (KeyError, ValueError, IndexError):
+                return None
+        return wrapper
+    return decorator
+
+
+@get_latest_price(
+        url='https://apiv2.nobitex.ir/market/stats',
+        method_name='post',
+        payload={
+            'srcCurrency': 'usdt',
+            'dstCurrency': 'rls',
+        }
+)
+def get_nobitex_price(response):
+    price = response['stats']['usdt-rls']['latest']
+    return int(price)
+
+
+@get_latest_price('https://api.wallex.ir/v1/trades?symbol=USDTTMN')
+def get_wallex_price(response):
+    price = response['result']['latestTrades'][0]['price']
+    return int(float(price))
+
+
+@get_latest_price('https://api.bitpin.ir/v1/mkt/markets/')
+def get_bitpin_price(response):
+    price = None
+    for market in response['results']:
+        if market['code'] == 'USDT_IRT':
+            price = market['price']
+            break
+    return int(price)
+
+
+@get_latest_price('https://market.tetherland.com/last_trades')
+def get_tetherland_price(response):
+    price = response['data'][0]['price']
+    return int(price)
+
+
+
+def alert(bot_token, channel_id):
+    prices = {
+        'نوبیتکس': get_nobitex_price(),
+        'والکس': get_wallex_price(),
+        'بیت‌پین': get_bitpin_price(),
+        'تترلند': get_tetherland_price(),
+    }
+     
+    for key, value in prices.copy().items():
+         if value is None:
+             del prices[key]
+    
+
+    average_price = int(sum(prices.values()) / len(prices))
+
+    postfixes = {
+        'نوبیتکس': '',
+        'والکس': '',
+        'بیت‌پین': '',
+        'تترلند': '',
+        'تبدیل': '',
+    }
+
+    postfixes[min(prices, key=prices.get)] = '🔽'
+    postfixes[max(prices, key=prices.get)] = '🔼'
+
+
+    alert_text = '\n'.join(
+        [f'*میانگین: {average_price} تومان*', ''] +
+        [f'{exchange_name}: {price} تومان {postfixes[exchange_name]}' for exchange_name, price in prices.items()]
+    )
+
+    for eng_digit, per_digit in english_to_persian_dict.items():
+        alert_text = alert_text.replace(eng_digit, per_digit)
+
+
+    requests.post(
+        url=f'https://api.telegram.org/bot{bot_token}/sendMessage',
+        data={'chat_id': channel_id, 'text': alert_text, 'parse_mode': 'markdown'}
+    )
+
+
+
+if __name__ == '__main__':
+    alert(bot_token=TOKEN, channel_id=CHANNEL_ID)
