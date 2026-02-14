@@ -46,7 +46,7 @@ def get_latest_price(url, method_name='get', payload=None):
 )
 def get_nobitex_price(response):
     price = response['stats']['usdt-rls']['latest']
-    return int(price)
+    return int(price) / 10
 
 
 @get_latest_price('https://api.wallex.ir/v1/trades?symbol=USDTTMN')
